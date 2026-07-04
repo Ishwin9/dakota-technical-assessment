@@ -1,0 +1,10 @@
+version: 2
+
+sources:
+  - name: bronze
+    schema: bronze
+    tables:
+      - name: eia_natural_gas_imports
+        description: Bronze layer. EIA natural-gas/move/impc (imports by country, monthly), landed as-is by the Airflow DAG.
+      - name: enrichment_weather
+        description: Bronze layer. Synthetic hourly weather per region from the enrichment API, landed as-is by the Airflow DAG.

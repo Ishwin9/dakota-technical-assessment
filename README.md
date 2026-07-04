@@ -1,156 +1,80 @@
-# Dakota Analytics - Data Engineering Technical Assessment
+# Dakota Energy Analytics Pipeline
 
-## Overview
+An end-to-end data pipeline: a synthetic weather/grid-event API, ingestion from that API plus
+the EIA's public natural gas import statistics, a Postgres database in a bronze/silver/gold
+(medallion) layout, dbt transformations, Airflow orchestration, and an automated PDF
+executive report. Everything runs from one `docker compose` stack.
 
-Build an end-to-end data pipeline that ingests source data, enriches it with synthetic data, transforms it using dbt, and produces analytical reports. Using AI tooling is fine, just be professional.
+See [`docs/architecture.md`](docs/architecture.md) for how it fits together and
+[`docs/decisions.md`](docs/decisions.md) for why it's built this way.
 
-## The Challenge
+## Requirements
 
-![Architecture Diagram](data-engineer-applicant.png)
+- [Docker](https://www.docker.com/) (or [Colima](https://github.com/abiosoft/colima) +
+  Docker CLI on macOS) with the daemon running
+- [`uv`](https://docs.astral.sh/uv/getting-started/installation/)
+- A free [EIA API key](https://www.eia.gov/opendata/register.php)
 
-Implement a production-ready data pipeline with these components:
+## Setup
 
-### 1. FastAPI Data Service (20 points)
-Create a FastAPI application that generates synthetic enrichment data relevant to energy analytics.
-- Use `uv` for dependency management
-- Design and implement useful enrichment data schemas
-- Containerize the service
-- See [api/README.md](api/README.md)
-
-### 2. Data Ingestion (20 points)
-Build clients to fetch data from:
-- A source of your choice
-- OR (not and) EIA API (https://www.eia.gov/opendata/) - register for free API key
-- Your FastAPI enrichment service
-
-Implement error handling, retries, and logging.
-See [ingestion/README.md](ingestion/README.md)
-
-### 3. Orchestration (20 points)
-Choose and implement a workflow orchestrator (Dagster, Airflow, Prefect, etc.)
-- Daily batch ingestion from EIA
-- Frequent ingestion from FastAPI service
-- dbt transformation execution
-- Data quality checks
-- Report generation
-- Error handling and monitoring
-
-See [orchestration/README.md](orchestration/README.md)
-
-### 4. Database Design (15 points)
-Design a Database schema for:
-- Raw data storage
-- Transformed analytics tables
-- Time-series considerations if any
-
-Include initialization scripts and ER diagram.
-See [database/README.md](database/README.md)
-
-### 5. dbt Transformations (20 points)
-Implement layered dbt models:
-- Organize in chosen architecture pattern
-- Include data quality tests
-- Document models
-- Use incremental models where appropriate
-
-See [dbt/README.md](dbt/README.md)
-
-### 6. Reporting (10 points)
-Generate automated reports of your choice:
-- Excel dashboard with metrics and charts
-- Jupyter notebook with exploratory analysis
-- PDF executive summary
-- Doesn't have to be all, just relevant
-
-See [reports/README.md](reports/README.md)
-
-## Deliverables
-
-### Required Structure
-
-```
-your-fork/
-├── README.md              # Update with setup instructions
-├── docker-compose.yml     # All services defined
-├── run.sh / run.bat       # Startup script (see below)
-├── .env.example          # Environment variables template
-│
-├── api/                  # FastAPI service
-├── ingestion/            # Data ingestion clients
-├── orchestration/        # Your orchestrator implementation
-├── database/             # Schema and init scripts
-├── dbt/                  # dbt project
-├── reports/              # Report generation
-│
-├── docs/                 # YOUR DOCUMENTATION
-│   ├── architecture.md   # System architecture and design
-│   ├── decisions.md      # Technical decisions and rationale
-│   └── er_diagram.png    # Database schema diagram
-│
-└── tests/                # Your tests
-
+```bash
+cp .env.example .env
+# then edit .env and set EIA_API_KEY, and generate a value for AIRFLOW_JWT_SECRET:
+python3 -c "import secrets; print(secrets.token_urlsafe(32))"
 ```
 
-### Documentation (in `/docs/`)
+## Run
 
-Create these files explaining your work:
+```bash
+./run.sh
+```
 
-**`docs/architecture.md`**
-- System design overview
-- Technology choices and why
-- Data flow
-- Scalability considerations
+This builds every image, starts the full stack, triggers the `energy_pipeline` DAG once, waits
+for it to finish, and generates the executive report. It's safe to re-run — every step is
+idempotent (bronze tables upsert on natural keys, `docker compose up` reuses existing
+containers/volumes).
 
-**`docs/decisions.md`**
-- Key technical decisions
-- Trade-offs considered
-- Alternative approaches
-- Rationale for choices
+Or drive it step by step with the Makefile:
 
-### Startup Script Requirements
+```bash
+make setup    # build images, create .env if missing
+make run      # start the stack, trigger the pipeline
+make test     # run the API and ingestion test suites
+make report   # regenerate the executive PDF report
+make clean    # tear down containers and volumes
+```
 
-**Create a script (e.g., `run.sh` for Unix/Mac or `run.bat` for Windows) that:**
+## Where things land
 
-1. Sets up the environment (dependencies, `.env` file, builds containers)
-2. Starts all services via docker-compose
-3. Runs the pipeline end-to-end
-4. Generates reports
-5. Provides clear output/logging of what's happening
+| What | Where |
+|---|---|
+| Airflow UI (DAG runs, logs) | http://localhost:8080/dags/energy_pipeline |
+| Enrichment API docs | http://localhost:8000/docs |
+| Executive report | `reports/output/energy_report.pdf` |
+| Database | `localhost:${POSTGRES_HOST_PORT:-5433}` (defaults to 5433, not 5432, to avoid clashing with a locally-installed Postgres) |
 
-The script should be idempotent and handle:
-- First-time setup
-- Subsequent runs
-- Basic error handling
+The Airflow UI needs no login (`SimpleAuthManager` with `simple_auth_manager_all_admins`,
+appropriate for this local-only setup).
 
-We will evaluate your solution by running this script in a clean environment. Include usage instructions in your README.
+## Project structure
 
-## Evaluation Criteria
+```
+api/            FastAPI synthetic enrichment service (weather + grid events)
+ingestion/      Plain-function clients: EIA API, enrichment API
+database/       Bronze-layer schema (init/) and schema docs (documentation/)
+dbt/            Silver + gold dbt models (dakota_energy project)
+orchestration/  Airflow DAG + Dockerfile (Astro Runtime image)
+reports/        Executive PDF report generator
+docs/           Architecture, decisions, ER diagram
+tests/          pytest suites for api/ and ingestion/
+```
 
-- **Technical Excellence (40%)** - Code quality, error handling, testing, performance
-- **Architecture & Design (30%)** - Tool choices, database design, scalability, separation of concerns
-- **Documentation (20%)** - Clarity, completeness, decision rationale
-- **Innovation (10%)** - Creative solutions, best practices, additional value
+## Testing
 
-## Time Expectation
+```bash
+make test
+```
 
-Approximately 4-6 hours. Focus on quality and demonstrating best practices.
-
-## Submission
-
-1. Fork this repository
-2. Implement your solution
-3. Test that your startup script works in a clean environment
-4. Email your repository URL to: **technical-assessment@dakotaanalytics.com**
-
-Include in your email:
-- Your name
-- Repository link (should be public)
-- Brief summary of your approach
-
-## Questions?
-
-For clarification on requirements only: **technical-assessment@dakotaanalytics.com**
-
-We can clarify requirements but won't help with implementation decisions - that's what we're evaluating!
-
----
+Runs the API service's and ingestion package's test suites (generators, endpoints, retry
+behavior, pagination) via `uv run pytest`. dbt's own schema tests (`not_null`, `unique`) run
+as part of the pipeline itself, inside the `run_dbt` DAG task.

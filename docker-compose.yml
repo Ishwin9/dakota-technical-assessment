@@ -1,9 +1,93 @@
-version: '3.8'
-
 # This is a starter template. Modify and extend based on your implementation.
 # The code below is just for example, we expect you to modify it.
 
+x-airflow-common: &airflow-common
+  build:
+    context: .
+    dockerfile: orchestration/Dockerfile
+  environment: &airflow-common-env
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+    AIRFLOW__CORE__AUTH_MANAGER: airflow.api_fastapi.auth.managers.simple.simple_auth_manager.SimpleAuthManager
+    AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_ALL_ADMINS: "true"
+    AIRFLOW__API_AUTH__JWT_SECRET: ${AIRFLOW_JWT_SECRET:?AIRFLOW_JWT_SECRET must be set in .env}
+    AIRFLOW__CORE__EXECUTION_API_SERVER_URL: http://airflow-apiserver:8080/execution/
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@airflow-postgres:5432/airflow
+    AIRFLOW_CONN_DAKOTA_POSTGRES: postgresql://${POSTGRES_USER:-dakota_user}:${POSTGRES_PASSWORD:-change_me}@postgres:5432/${POSTGRES_DB:-energy_analytics}
+    ENRICHMENT_API_BASE_URL: http://enrichment-api:8000
+    EIA_API_KEY: ${EIA_API_KEY:-}
+    DBT_POSTGRES_HOST: postgres
+    DBT_POSTGRES_USER: ${POSTGRES_USER:-dakota_user}
+    DBT_POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_me}
+    DBT_POSTGRES_DB: ${POSTGRES_DB:-energy_analytics}
+  volumes:
+    - ./orchestration/dags:/usr/local/airflow/dags
+    - ./orchestration/plugins:/usr/local/airflow/plugins
+    - ./dbt:/usr/local/airflow/dbt
+    - ./reports:/usr/local/airflow/reports
+  networks:
+    - dakota_network
+  depends_on:
+    airflow-init:
+      condition: service_completed_successfully
+
 services:
+  airflow-postgres:
+    image: postgres:15-alpine
+    container_name: dakota_airflow_postgres
+    environment:
+      POSTGRES_DB: airflow
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+    volumes:
+      - airflow_postgres_data:/var/lib/postgresql/data
+    networks:
+      - dakota_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U airflow"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  airflow-init:
+    build:
+      context: .
+      dockerfile: orchestration/Dockerfile
+    environment: *airflow-common-env
+    networks:
+      - dakota_network
+    depends_on:
+      airflow-postgres:
+        condition: service_healthy
+    entrypoint: ["bash", "-c", "airflow db migrate"]
+
+  airflow-scheduler:
+    <<: *airflow-common
+    container_name: dakota_airflow_scheduler
+    command: ["airflow", "scheduler"]
+
+  airflow-dag-processor:
+    <<: *airflow-common
+    container_name: dakota_airflow_dag_processor
+    command: ["airflow", "dag-processor"]
+
+  airflow-triggerer:
+    <<: *airflow-common
+    container_name: dakota_airflow_triggerer
+    command: ["airflow", "triggerer"]
+
+  airflow-apiserver:
+    <<: *airflow-common
+    container_name: dakota_airflow_apiserver
+    command: ["airflow", "api-server"]
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/api/v2/version || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
   # PostgreSQL Database or other database
   postgres:
     image: postgres:15-alpine
@@ -13,7 +97,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-dakota_user}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_me}
     ports:
-      - "5432:5432"
+      - "${POSTGRES_HOST_PORT:-5433}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./database/init:/docker-entrypoint-initdb.d
@@ -25,9 +109,23 @@ services:
       timeout: 5s
       retries: 5
 
-  # Add your services here:
-  # - FastAPI service
-  # - Orchestrator
+  # Synthetic weather + grid-event enrichment service
+  enrichment-api:
+    build:
+      context: ./api
+    container_name: dakota_enrichment_api
+    ports:
+      - "8000:8000"
+    networks:
+      - dakota_network
+    healthcheck:
+      test: ["CMD", "uv", "run", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+  # Add your remaining services here:
   # - dbt
   # - Jupyter (optional for notebooks)
   # etc.
@@ -38,3 +136,4 @@ networks:
 
 volumes:
   postgres_data:
+  airflow_postgres_data:

@@ -1,0 +1,30 @@
+version: 2
+
+models:
+  - name: fct_natural_gas_imports_monthly
+    description: Gold layer. Total US natural gas import volume (MMCF) by month and source area.
+    columns:
+      - name: period_month
+        tests:
+          - not_null
+      - name: area_name
+        tests:
+          - not_null
+
+  - name: fct_weather_daily
+    description: Gold layer. Daily weather rollup per electricity balancing-authority region.
+    columns:
+      - name: region_code
+        tests:
+          - not_null
+      - name: observation_date
+        tests:
+          - not_null
+
+  - name: fct_national_weather_monthly
+    description: Gold layer. National monthly weather rollup, same grain as fct_natural_gas_imports_monthly for cross-domain analysis.
+    columns:
+      - name: period_month
+        tests:
+          - not_null
+          - unique

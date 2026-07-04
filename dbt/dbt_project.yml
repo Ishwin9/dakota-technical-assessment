@@ -1,0 +1,17 @@
+name: dakota_energy
+version: "1.0.0"
+config-version: 2
+
+profile: dakota_energy
+
+model-paths: ["models"]
+macro-paths: ["macros"]
+
+models:
+  dakota_energy:
+    silver:
+      +materialized: view
+      +schema: silver
+    gold:
+      +materialized: table
+      +schema: gold

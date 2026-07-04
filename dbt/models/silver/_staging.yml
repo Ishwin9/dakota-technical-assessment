@@ -1,0 +1,25 @@
+version: 2
+
+models:
+  - name: stg_eia_natural_gas_imports
+    description: Silver layer. EIA natural gas imports with period parsed to a real date.
+    columns:
+      - name: series
+        tests:
+          - not_null
+      - name: period_month
+        tests:
+          - not_null
+      - name: units
+        tests:
+          - not_null
+
+  - name: stg_enrichment_weather
+    description: Silver layer. Synthetic hourly weather observations, typed and renamed for downstream use.
+    columns:
+      - name: region_code
+        tests:
+          - not_null
+      - name: observation_time
+        tests:
+          - not_null
