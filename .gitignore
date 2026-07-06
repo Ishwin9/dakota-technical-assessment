@@ -56,9 +56,11 @@ dbt/.user.yml
 .ipynb_checkpoints/
 *.ipynb_checkpoints
 
-# Reports (keep templates, ignore generated)
+# Reports -- keep one committed example (energy_report.pdf) for visibility without
+# running the pipeline; run.sh/make report regenerate it fresh on every run anyway.
 reports/output/*
 !reports/output/.gitkeep
+!reports/output/energy_report.pdf
 
 # Orchestration logs and metadata
 orchestration/logs/
